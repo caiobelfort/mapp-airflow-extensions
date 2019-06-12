@@ -1,39 +1,39 @@
 from mapp.operators.dv_operators import _format_business_keys
 
 
-def test__format_business_key_return_list_of_lists():
-    """Tests if the function returns a list of lists"""
+class TestFormatBusinessKeyFunction(object):
 
-    row = {"bk1": 'val', "bk2": "val", "bk3": "val", "bk4": "val", "bk5": "val"}
+    def test_return_list_of_lists(self):
+        """Tests if the function returns a list of lists"""
 
-    bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
+        row = {"bk1": 'val', "bk2": "val", "bk3": "val", "bk4": "val", "bk5": "val"}
 
-    formatted_bks = _format_business_keys(row, bk)
+        bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
 
-    # Tests if returned result is a list
-    assert isinstance(formatted_bks, list)
+        formatted_bks = _format_business_keys(row, bk)
 
-    # Testes if each object in list is also a list
-    assert all(isinstance(x, list) for x in formatted_bks)
+        # Tests if returned result is a list
+        assert isinstance(formatted_bks, list)
 
+        # Testes if each object in list is also a list
+        assert all(isinstance(x, list) for x in formatted_bks)
 
-def test__format_business_key_return_str():
-    row = {"bk1": 2, "bk2": 3, "bk3": "val", "bk4": "val", "bk5": "val"}
+    def test_return_strs(self):
+        row = {"bk1": 2, "bk2": 3, "bk3": "val", "bk4": "val", "bk5": "val"}
 
-    bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
+        bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
 
-    formatted_bks = _format_business_keys(row, bk)
+        formatted_bks = _format_business_keys(row, bk)
 
-    assert all(isinstance(v, str) for sl in formatted_bks for v in sl)
+        assert all(isinstance(v, str) for sl in formatted_bks for v in sl)
 
+    def test_correct_result(self):
+        row = {"bk1": 2, "bk2": 3, "bk3": "val", "bk4": "val", "bk5": "val"}
 
-def test__format_business_key_result():
-    row = {"bk1": 2, "bk2": 3, "bk3": "val", "bk4": "val", "bk5": "val"}
+        bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
 
-    bk = [["bk1"], "bk2", ["bk3", "bk4"], "bk5"]
+        formatted_bks = _format_business_keys(row, bk)
 
-    formatted_bks = _format_business_keys(row, bk)
+        expect = [["2"], ["3"], ["val", "val"], ["val"]]
 
-    expect = [["2"], ["3"], ["val", "val"], ["val"]]
-
-    assert formatted_bks == expect
+        assert formatted_bks == expect
