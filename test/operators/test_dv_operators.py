@@ -1,7 +1,7 @@
-from mapp.operators.dv_operators import _get_key_values_as_lists
+from mapp.operators.dv_operators import _get_key_values_as_lists, _convert_arr_to_str_arr
 
 
-class TestKeyValueAsLists(object):
+class TestFunctionKeyValueAsLists(object):
 
     def test_return_list_of_lists(self):
         """Tests if the function returns a list of lists"""
@@ -28,3 +28,23 @@ class TestKeyValueAsLists(object):
         expect = [[2], [3], ["val", "val"], ["val"]]
 
         assert formatted_bks == expect
+
+
+class TestFunctionConvertArrToStrArr(object):
+    def test_correct_conversion(self):
+        input = [[2], [3], ["val", "val"], ["val"]]
+
+        expected_output = [['2'], ['3'], ['val', 'val'], ['val']]
+
+        assert expected_output == _convert_arr_to_str_arr(input)
+
+
+class TestHubFormatterOperator(object):
+    pass
+
+class TestLinkFormatterOperator(object):
+    pass
+
+class TestSatelliteFormaterOperator(object):
+    pass
+
