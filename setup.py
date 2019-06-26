@@ -11,7 +11,7 @@ setup(
     install_requires=['apache-airflow==1.10.3'],
     entry_points={
         'airflow.plugins': [
-            'mapp = mapp.MappPlugin'
+            'mapp = mapp:MappPlugin'
         ]
     }
 )
