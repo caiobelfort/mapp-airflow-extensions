@@ -1,22 +1,17 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="mapp-airflow-extensions",
+    descriptions="Airflow extensions used my MateusApp Data Team",
     version='0.1a',
     author='Caio Belfort',
     author_email='caiobelfort90@gmail.com',
-    packages=['mapp'],
+    packages=find_packages(exclude=['tests']),
     license='GPL',
     install_requires=['apache-airflow==1.10.3'],
-    classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Topic :: Software Development',
-        'Intended Audience :: Developers',
-        "Programming Language :: Python :: 3.6"
-    ],
     entry_points={
-        "airflow.plugins": [
-            "mapp_plugin = mapp.mapp_plugin:MappPlugin"
+        'airflow.plugins': [
+            'mapp = mapp.MappPlugin'
         ]
     }
 )
