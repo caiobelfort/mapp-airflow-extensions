@@ -105,7 +105,10 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         self.delegate_to = delegate_to
 
     def execute(self, context):
-        cursor = self._query_mssql()
+        cursor = self._query_mssql(self.sql)
+
+        self.log.info('Getting {} lines from cursor'.format(cursor.rowcount))
+
         files_to_upload = self._write_local_data_files(cursor)
 
         # If a schema is set, create a BQ schema JSON file.
@@ -116,13 +119,14 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         for file_handle in files_to_upload.values():
             file_handle.flush()
 
+        self.log.info('Sending file to GCS')
         self._upload_to_gcs(files_to_upload)
 
         # Close all temp file handles
         for file_handle in files_to_upload.values():
             file_handle.close()
 
-    def _query_mssql(self):
+    def _query_mssql(self, sql):
         """
         Queries MSSQL and returns a cursor of results.
         :return: mssql cursor
@@ -130,10 +134,10 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         mssql = MsSqlHook(mssql_conn_id=self.mssql_conn_id)
         conn = mssql.get_conn()
         cursor = conn.cursor()
-        cursor.execute(self.sql)
+        cursor.execute(sql)
         return cursor
 
-    def _write_local_data_files(self, cursor):
+    def _write_local_data_files(self, cursor, filename):
         """
         Takes a cursor, and writes results to a local file.
         :return: A dictionary where keys are filenames to be used as object
@@ -238,3 +242,75 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         return d[mssql_type] if mssql_type in d else 'STRING'
 
 
+class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOperator):
+    template_fields = ('sql', 'partition_sql', 'bucket', 'filename', 'schema_filename',)
+    template_ext = ('.sql',)
+    ui_color = '#e0a98c'
+
+    @apply_defaults
+    def __init__(self,
+                 sql,
+                 partition_sql,
+                 bucket,
+                 filename,
+                 schema_filename=None,
+                 approx_max_file_size_bytes=1900000000,
+                 gzip=False,
+                 mssql_conn_id='mssql_default',
+                 google_cloud_storage_conn_id='google_cloud_default',
+                 delegate_to=None,
+                 *args,
+                 **kwargs):
+
+        super(PartitionedMsSqlToGoogleCloudStorageOperator, self).__init__(
+            sql=sql,
+            bucket=bucket,
+            filename=filename,
+            *args, **kwargs)
+
+        self.sql = sql
+        self.bucket = bucket
+        self.filename = filename
+        self.schema_filename = schema_filename
+        self.approx_max_file_size_bytes = approx_max_file_size_bytes
+        self.gzip = gzip
+        self.mssql_conn_id = mssql_conn_id
+        self.google_cloud_storage_conn_id = google_cloud_storage_conn_id
+        self.delegate_to = delegate_to
+        self.partition_sql = partition_sql
+
+    def _get_partitions(self):
+        hook = MsSqlHook(mssql_conn_id=self.mssql_conn_id)
+        conn = hook.get_conn()
+        cursor = conn.cursor()
+        cursor.execute(self.partition_sql)
+        l = [row[0] for row in cursor]
+        return l
+
+    def execute(self, context):
+        self.log.info('Getting partitions...')
+        partitions = self._get_partitions()
+
+        if len(partitions) == 0:
+            self.log.info('No data to retrieve.')
+            return 0
+
+        for i, p in enumerate(partitions):
+            self.log.info('Executing step {} of {}'.format(i + 1, len(partitions)))
+
+            partitioned_sql = self.sql.replace(':partition', str(p))
+
+            cursor = self._query_mssql(partitioned_sql)
+
+            files_to_upload = self._write_local_data_files(cursor, self.filename.format(partition=i))
+
+            # If a schema is set, create a BQ schema JSON file.
+            if self.schema_filename:
+                files_to_upload.update(self._write_local_schema_file(cursor))
+
+            # Flush all files before uploading
+            for file_handle in files_to_upload.values():
+                file_handle.flush()
+
+            self.log.info('Sending file to GCS')
+            self._upload_to_gcs(files_to_upload)
