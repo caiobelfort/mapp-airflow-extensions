@@ -61,7 +61,6 @@ RUN set -ex \
         /usr/share/doc \
         /usr/share/doc-base
 
-
 RUN chown -R airflow: ${AIRFLOW_USER_HOME}
 
 USER airflow

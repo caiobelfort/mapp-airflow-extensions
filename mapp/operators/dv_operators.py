@@ -22,23 +22,102 @@ def _get_data_from_gcs(gcp_conn_id, bucket, input):
     return filename
 
 
-def _format_business_keys(row, business_keys):
-    formatted_bk_list = []
-    for bk in business_keys:
-        if isinstance(bk, list):
-            formatted_bk_list.append([str(row[v]) for v in bk])
-        else:
-            formatted_bk_list.append([str(row[bk])])
+def _get_key_values_as_lists(dictionary: dict, keys: list):
+    """Retorna lista de lista dos valores de um dicionario"""
+    return [[dictionary[v] for v in obj] if isinstance(obj, list) else [dictionary[obj]] for obj in keys]
 
-    return formatted_bk_list
+
+def _convert_arr_to_str_arr(arr):
+    """Convert uma lista de listas para lista de listas com todos os objetos como string"""
+    return [[str(v) for v in subarr] for subarr in arr]
 
 
 def _send_data_to_gcs(data: pd.DataFrame, gcp_conn_id, bucket, output):
     tmp_file = NamedTemporaryFile(delete=False)
+
+    # Convert None to null
     data.to_json(tmp_file.name, orient='records', lines=True)
+
     hook = GoogleCloudStorageHook(google_cloud_storage_conn_id=gcp_conn_id)
     hook.upload(bucket, output, filename=tmp_file.name, mime_type='application/json')
     os.remove(tmp_file.name)
+
+
+class SatelliteFormatterOperator(BaseOperator):
+    """
+    Formats a GCS JSON file to Datavault Satellite Style and Send Back to GCS in the new format
+    """
+
+    template_fields = ('input_bucket', 'output_bucket', 'output_object', 'input_object', 'load_date')
+
+    @apply_defaults
+    def __init__(self,
+                 input_bucket: str,
+                 output_bucket: str,
+                 input_object: str,
+                 output_object: str,
+                 business_keys: List[str],
+                 checksum_keys: List[str],
+                 record_source: str,
+                 schema: List[dict],
+                 load_date: str = '{{ds}}',
+                 gcp_conn_id: str = 'google_cloud_default',
+                 *args,
+                 **kwargs
+                 ):
+        super(SatelliteFormatterOperator, self).__init__(*args, **kwargs)
+
+        self.gcp_conn_id = gcp_conn_id
+        self.input_bucket = input_bucket
+        self.output_bucket = output_bucket
+        self.input_object = input_object
+        self.output_object = output_object
+        self.business_keys = business_keys
+        self.record_source = record_source
+        self.load_date = load_date
+        self.schema = schema
+        self.checksum_keys = checksum_keys
+
+    def execute(self, context):
+        self.log.info('Getting data from GCS')
+        filename = _get_data_from_gcs(self.gcp_conn_id, self.input_bucket, self.input_object)
+
+        self.log.info('Processing lines...')
+        with open(filename) as f:
+            formatted_rows = pd.DataFrame(
+                [self._format_row(json.loads(line)) for line in f],
+                columns=self.schema
+            ).drop_duplicates()
+
+        self.log.info(f'Generate {len(formatted_rows)} candidates.')
+
+        os.remove(filename)
+
+        self.log.info('Sending processed data to GCS')
+        _send_data_to_gcs(formatted_rows, self.gcp_conn_id, self.output_bucket, self.output_object)
+
+    def _format_row(self, row):
+        # Business Keys
+        bks = _get_key_values_as_lists(row, self.business_keys)
+
+        # Descriptive Keys
+        cks = [c for sl in _get_key_values_as_lists(row, self.checksum_keys) for c in sl]
+
+        # Gera hash key de cada business key fornecida via argumento de inicialização de classe
+        hashed = []
+        for b in _convert_arr_to_str_arr(bks):
+            hashed.append(hashlib.md5('|'.join(sorted(b)).encode('utf-8')).hexdigest())
+
+        # Gera hash do link a partir das hashs criadas pelas business keys
+        hash_ = hashlib.md5('|'.join(sorted(hashed)).encode('utf-8')).hexdigest()
+
+        checksum = hashlib.md5('|'.join(sorted([str(c) for c in cks])).encode('utf-8')).hexdigest()
+
+        return [
+                   hash_,
+                   time.mktime(datetime.datetime.strptime(self.load_date, "%Y-%m-%d").timetuple()),
+                   self.record_source
+               ] + cks + [checksum]
 
 
 class LinkFormatterOperator(BaseOperator):
@@ -70,6 +149,10 @@ class LinkFormatterOperator(BaseOperator):
         self.output_bucket = output_bucket
         self.input_object = input_object
         self.output_object = output_object
+
+        if len(business_keys) < 2:
+            raise RuntimeError('Link business key list must be of size larger than 1.')
+
         self.business_keys = business_keys
         self.record_source = record_source
         self.load_date = load_date
@@ -94,15 +177,15 @@ class LinkFormatterOperator(BaseOperator):
         _send_data_to_gcs(formatted_rows, self.gcp_conn_id, self.output_bucket, self.output_object)
 
     def _format_row(self, row):
-        bks = _format_business_keys(row, self.business_keys)
+        bks = _get_key_values_as_lists(row, self.business_keys)
 
         # Gera hash key de cada business key fornecida via argumento de inicialização de classe
         hashed = []
-        for b in bks:
-            hashed.append(hashlib.md5(''.join(b).encode('utf-8')).hexdigest())
+        for b in _convert_arr_to_str_arr(bks):
+            hashed.append(hashlib.md5('|'.join(sorted(b)).encode('utf-8')).hexdigest())
 
         # Gera hash do link a partir das hashs criadas pelas business keys
-        hash_ = hashlib.md5(''.join(hashed).encode('utf-8')).hexdigest()
+        hash_ = hashlib.md5('|'.join(sorted(hashed)).encode('utf-8')).hexdigest()
 
         return [
                    hash_,
@@ -140,6 +223,9 @@ class HubFormatterOperator(BaseOperator):
         self.output_bucket = output_bucket
         self.input_object = input_object
         self.output_object = output_object
+
+        if len(business_keys) > 1:
+            raise RuntimeError('Hub business key list must be of size 1.')
         self.business_keys = business_keys
         self.record_source = record_source
         self.load_date = load_date
@@ -164,20 +250,15 @@ class HubFormatterOperator(BaseOperator):
         _send_data_to_gcs(formatted_rows, self.gcp_conn_id, self.output_bucket, self.output_object)
 
     def _format_row(self, element):
-        bks = _format_business_keys(element, self.business_keys)
+        bks = _get_key_values_as_lists(element, self.business_keys)[0]
 
-        hashed = []
-        for b in bks:
-            hashed.append(hashlib.md5(''.join(b).encode('utf-8')).hexdigest())
-
-        # Gera hash do link a partir das hashs criadas pelas business keys
-        hash_ = hashlib.md5(''.join(hashed).encode('utf-8')).hexdigest()
+        hash_ = hashlib.md5('|'.join(sorted([str(v) for v in bks])).encode('utf-8')).hexdigest()
 
         return [
                    hash_,
                    time.mktime(datetime.datetime.strptime(self.load_date, "%Y-%m-%d").timetuple()),
                    self.record_source
-               ] + [b for sl in bks for b in sl]  # Flattens the list
+               ] + bks  # Flattens the list
 
 
 class DatavaultInsertOperator(BaseOperator):
@@ -188,17 +269,21 @@ class DatavaultInsertOperator(BaseOperator):
 
     def __init__(self,
                  bigquery_conn_id,
-                 hub_project_dataset_table_id: str,
+                 destination_project_dataset_table_id: str,
                  staging_project_dataset_table_id: str,
+                 mode: str = 'hub',
                  schema: List[str] = None,
                  *args,
                  **kwargs
                  ):
         """
-        :param hub_project_dataset_table_id:
-            The [project_id]:dataset.table_id which is a Hub
+        :param destination_project_dataset_table_id:
+            Where to insert the data in bigquery
         :param staging_project_dataset_table_id:
-            The [project_id]:dataset.table_id which serves as staging for `hub_project_dataset_table_id`
+            Where staging data is located
+        :param mode:
+            Mode of insertion, if 'hub' and 'link', use only the table hash as check. If 'satellite' uses
+            hash, load_date and checksum.
         :param schema:
             The schema of `hub_project_dataset_table_id`. If None, infer from BigQuery itself. The schema must have
             same order of columns as table and hub hash key MUST BE first column.
@@ -208,29 +293,35 @@ class DatavaultInsertOperator(BaseOperator):
         super(DatavaultInsertOperator, self).__init__(*args, **kwargs)
 
         self.bigquery_conn_id = bigquery_conn_id
-        self.hub_project_dataset_table_id = hub_project_dataset_table_id
+        self.destination_project_dataset_table_id = destination_project_dataset_table_id
         self.staging_project_dataset_table_id = staging_project_dataset_table_id
 
         self.schema = schema
 
-        # Creates INSERT INTO CLAUSE
+        self.sql = """
+            INSERT INTO `{table}` ({cols})
+            SELECT 
+                S.*
+            FROM `{staging}` AS S 
+                LEFT JOIN `{table}` AS T
+                    ON S.{hash} = T.{hash}
+            WHERE T.{hash} IS NULL 
+        """
+        if mode == 'satellite':
+            self.sql += " OR (T.{hash} IS NOT NULL AND S.checksum <> T.checksum) "
+
+        self.hook = None
+        self.conn = None
+        self.cursor = None
 
     def execute(self, context):
         # TODO Buscar schema do hub se não for passado schema via argumento
 
-        sql = """
-              INSERT INTO `{hub}` ({cols})
-              SELECT
-                  S.*
-              FROM `{staging}` AS S
-                  LEFT JOIN `{hub}` AS T
-                      ON S.{hash_key} = T.{hash_key}
-              WHERE T.{hash_key} IS NULL
-              """.format(
-            hub=self.hub_project_dataset_table_id,
+        sql = self.sql.format(
+            table=self.destination_project_dataset_table_id,
             staging=self.staging_project_dataset_table_id,
             cols=','.join(self.schema),
-            hash_key=self.schema[0]
+            hash=self.schema[0]
         )
 
         self.log.info('Execution sql \n {}'.format(sql))
