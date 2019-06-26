@@ -42,10 +42,8 @@ class TestFunctionConvertArrToStrArr(object):
 class TestHubFormatterOperator(object):
     pass
 
-
 class TestLinkFormatterOperator(object):
     pass
-
 
 class TestSatelliteFormatterOperator(object):
     pass
