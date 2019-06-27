@@ -1,0 +1,8 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: python:3.6-slim
+    steps:
+      - checkout
+      - run: python --version
