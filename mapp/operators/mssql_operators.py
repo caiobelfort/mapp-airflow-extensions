@@ -102,10 +102,19 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         self.mssql_conn_id = mssql_conn_id
         self.google_cloud_storage_conn_id = google_cloud_storage_conn_id
         self.delegate_to = delegate_to
-
         self.file_no = 0
 
+        self.mssql_hook = None
+        self.mssql_conn = None
+
+    def _setup_mssql_connection(self):
+        self.mssql_hook = MsSqlHook(mssql_conn_id=self.mssql_conn_id)
+        self.mssql_conn = self.mssql_hook.get_conn()
+
     def execute(self, context):
+
+        self._setup_mssql_connection()
+
         cursor = self._query_mssql(self.sql)
 
         tmp_file_handles, row_count = self._write_local_data_files(cursor, {})
@@ -136,9 +145,7 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         Queries MSSQL and returns a cursor of results.
         :return: mssql cursor
         """
-        mssql = MsSqlHook(mssql_conn_id=self.mssql_conn_id)
-        conn = mssql.get_conn()
-        cursor = conn.cursor()
+        cursor = self.mssql_conn.cursor()
         cursor.execute(sql)
         return cursor
 
@@ -344,6 +351,8 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
         return [row[0] for row in cursor]
 
     def execute(self, context):
+        self._setup_mssql_connection()
+
         self.log.info('Getting partitions...')
         partitions = self._get_partitions()
 
