@@ -104,29 +104,27 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         self.delegate_to = delegate_to
 
         self.file_no = 0
-        # Initializes the temporary filename
-        self.tmp_gcs_file_handles = {self.filename.format(self.file_no): NamedTemporaryFile(delete=True)}
 
     def execute(self, context):
         cursor = self._query_mssql(self.sql)
 
         self.log.info('Getting {} lines from cursor'.format(cursor.rowcount))
 
-        self._write_local_data_files(cursor)
+        tmp_file_handles = self._write_local_data_files(cursor, {})
 
         # If a schema is set, create a BQ schema JSON file.
         if self.schema_filename:
-            self.tmp_gcs_file_handles.update(self._write_local_schema_file(cursor))
+            tmp_file_handles.update(self._write_local_schema_file(cursor))
 
         # Flush all files before uploading
-        for file_handle in self.tmp_gcs_file_handles.values():
+        for file_handle in tmp_file_handles.values():
             file_handle.flush()
 
         self.log.info('Sending file to GCS')
-        self._upload_to_gcs()
+        self._upload_to_gcs(tmp_file_handles)
 
         # Close all temp file handles
-        for file_handle in self.tmp_gcs_file_handles.values():
+        for file_handle in tmp_file_handles.values():
             file_handle.close()
 
     def _query_mssql(self, sql):
@@ -140,17 +138,20 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         cursor.execute(sql)
         return cursor
 
-    def _get_current_tmp_file(self):
-        return self.tmp_gcs_file_handles[self.filename.format(self.file_no)]
-
-    def _write_local_data_files(self, cursor):
+    def _write_local_data_files(self, cursor, tmp_file_handles):
         """
         Takes a cursor, and writes results to a local file.
         """
         schema = list(map(lambda schema_tuple: schema_tuple[0].replace(' ', '_'), cursor.description))
 
+        if len(tmp_file_handles) == 0:
+            tmp_file_handles[self.filename.format(self.file_no)] = NamedTemporaryFile(delete=True)
+
+        cur_file_handle = tmp_file_handles[self.filename.format(self.file_no)]
+
         row_count = 0
         for row in cursor:
+
             # Convert if needed
             row_count += 1
             row = map(self.convert_types, row)
@@ -158,18 +159,21 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
 
             s = json.dumps(row_dict, sort_keys=True)
             s = s.encode('utf-8')
-            self._get_current_tmp_file().write(s)
+            cur_file_handle.write(s)
 
             # Append newline to make dumps BQ compatible
-            self._get_current_tmp_file().write(b'\n')
+            cur_file_handle.write(b'\n')
 
             # Stop if the file exceeds the file size limit
-            if self._get_current_tmp_file().tell() >= self.approx_max_file_size_bytes:
+            if cur_file_handle.tell() >= self.approx_max_file_size_bytes:
                 self.file_no += 1
                 # Creates a new temporary file
-                self.tmp_gcs_file_handles[self.filename.format(self.file_no)] = NamedTemporaryFile(delete=True)
+                cur_file_handle = NamedTemporaryFile()
+                tmp_file_handles[self.filename.format(self.file_no)] = cur_file_handle
 
         self.log.info(f'Received {row_count} rows')
+
+        return tmp_file_handles
 
     def _write_local_schema_file(self, cursor):
         """
@@ -199,7 +203,7 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
         tmp_schema_file_handle.write(s)
         return {self.schema_filename: tmp_schema_file_handle}
 
-    def _upload_to_gcs(self):
+    def _upload_to_gcs(self, tmp_file_handles):
         """
         Upload all of the file splits (and optionally the schema .json file) to
         Google cloud storage.
@@ -208,7 +212,7 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
             google_cloud_storage_conn_id=self.google_cloud_storage_conn_id,
             delegate_to=self.delegate_to)
 
-        for object_name, tmp_file_handle in self.tmp_gcs_file_handles.items():
+        for object_name, tmp_file_handle in tmp_file_handles.items():
             # File is not empty
             if tmp_file_handle.tell() > 0:
                 self.log.info(f'Uploading file {tmp_file_handle.name} to GCS in bucket {self.bucket} as {object_name}')
@@ -363,6 +367,7 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
                 file_handle.flush()
 
         self._upload_to_gcs()
+
         # Close all temp file handles
         for file_handle in self.tmp_gcs_file_handles.values():
             file_handle.close()
