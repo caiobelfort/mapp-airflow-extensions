@@ -108,8 +108,6 @@ class MsSqlToGoogleCloudStorageOperator(BaseOperator):
     def execute(self, context):
         cursor = self._query_mssql(self.sql)
 
-        self.log.info('Getting {} lines from cursor'.format(cursor.rowcount))
-
         tmp_file_handles = self._write_local_data_files(cursor, {})
 
         # If a schema is set, create a BQ schema JSON file.
@@ -349,6 +347,7 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
             self.log.info('No data to retrieve.')
             return 0
 
+        tmp_file_handles = {}
         for i, p in enumerate(partitions):
             self.log.info('Executing step {} of {}'.format(i + 1, len(partitions)))
 
@@ -356,18 +355,18 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
 
             cursor = self._query_mssql(partitioned_sql)
 
-            self._write_local_data_files(cursor)
+            tmp_file_handles = self._write_local_data_files(cursor, tmp_file_handles)
 
             # If a schema is set, create a BQ schema JSON file.
             if self.schema_filename and i == 0:
-                self.tmp_gcs_file_handles.update(self._write_local_schema_file(cursor))
+                tmp_file_handles.update(self._write_local_schema_file(cursor))
 
             # Flush all files before uploading
-            for file_handle in self.tmp_gcs_file_handles.values():
+            for file_handle in tmp_file_handles.values():
                 file_handle.flush()
 
-        self._upload_to_gcs()
+        self._upload_to_gcs(tmp_file_handles)
 
         # Close all temp file handles
-        for file_handle in self.tmp_gcs_file_handles.values():
+        for file_handle in tmp_file_handles.values():
             file_handle.close()
