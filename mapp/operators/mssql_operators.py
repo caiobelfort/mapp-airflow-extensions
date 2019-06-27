@@ -376,7 +376,7 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
         for file_handle in tmp_file_handles.values():
             file_handle.flush()
 
-        self.log.debug(f'Received {row_count} rows.')
+        self.log.info(f'Received {row_count} rows.')
         if row_count > 0:
             self.log.info('Uploading to GCS')
             self._upload_to_gcs(tmp_file_handles)
