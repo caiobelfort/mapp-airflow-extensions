@@ -12,8 +12,10 @@ from unittest import mock
 TASK_ID = 'test-mssql-to-gcs'
 MSSQL_CONN_ID = 'mssql_conn_test'
 SQL = 'select 1'
+PARTITION_SQL = 'select partition from (VALUES (42), (43), (44)) AS  X("partition")'
 BUCKET = 'gs://test'
 JSON_FILENAME = 'test_{}.ndjson'
+JSON_PARITION_FILENAME = 'test_{}-{}.ndjson'
 GZIP = False
 
 DATETIMES = [
@@ -44,6 +46,9 @@ SCHEMA_JSON = [
     b'{"mode": "NULLABLE", "name": "some_num", "type": "INTEGER"}, ',
     b'{"mode": "NULLABLE", "name": "some_datetime", "type": "TIMESTAMP"}]'
 ]
+
+PARTITION_ROWS = [('partition', 42), ('partition', 43), ('partition', 44)]
+PARTITION = [42, 43, 44]
 
 
 class MsSqlToGoogleCloudStorageOperatorTest(unittest.TestCase):
@@ -101,6 +106,7 @@ class MsSqlToGoogleCloudStorageOperatorTest(unittest.TestCase):
         expected_upload = {
             JSON_FILENAME.format(0): b''.join(NDJSON_LINES[:2]),
             JSON_FILENAME.format(1): NDJSON_LINES[2],
+            JSON_FILENAME.format(3): b''
         }
 
         def _assert_upload(bucket, obj, tmp_filename, mime_type=None, gzip=False):
@@ -119,6 +125,9 @@ class MsSqlToGoogleCloudStorageOperatorTest(unittest.TestCase):
             filename=JSON_FILENAME,
             approx_max_file_size_bytes=len(expected_upload[JSON_FILENAME.format(0)]))
         op.execute(None)
+
+        # Only two files has data, send only that two
+        self.assertEqual(2, gcs_hook_mock.upload.call_count)
 
     @mock.patch('mapp.operators.mssql_operators.MsSqlHook')
     @mock.patch('mapp.operators.mssql_operators.GoogleCloudStorageHook')
@@ -142,10 +151,13 @@ class MsSqlToGoogleCloudStorageOperatorTest(unittest.TestCase):
             sql=SQL,
             bucket=BUCKET,
             filename=JSON_FILENAME,
-            schema_filename=SCHEMA_FILENAME)
+            schema_filename=SCHEMA_FILENAME
+        )
+
         op.execute(None)
 
-        # once for the file and once for the schema
         self.assertEqual(2, gcs_hook_mock.upload.call_count)
+
+
 
 
