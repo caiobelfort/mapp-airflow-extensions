@@ -344,9 +344,7 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
         self.partition_sql = partition_sql
 
     def _get_partitions(self):
-        hook = MsSqlHook(mssql_conn_id=self.mssql_conn_id)
-        conn = hook.get_conn()
-        cursor = conn.cursor()
+        cursor = self.mssql_conn.cursor()
         cursor.execute(self.partition_sql)
         return [row[0] for row in cursor]
 
