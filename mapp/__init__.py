@@ -5,12 +5,14 @@ from mapp.operators.mssql_operators import *
 from mapp.operators.gcs_operators import *
 
 class MappPlugin(AirflowPlugin):
-    name = "mapp"
+    name = "mapp.dv"
     operators = [
         HubFormatterOperator,
         LinkFormatterOperator,
-        DatavaultInsertOperator,
+        SatelliteFormatterOperator,
         MsSqlToGoogleCloudStorageOperator,
         PartitionedMsSqlToGoogleCloudStorageOperator,
+        DatavaultInsertOperator,
         GCSObjectExistsShortCircuitOperator
     ]
+
