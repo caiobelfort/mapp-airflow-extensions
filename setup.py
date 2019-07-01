@@ -11,7 +11,9 @@ setup(
     install_requires=['apache-airflow==1.10.3'],
     entry_points={
         'airflow.plugins': [
-            'mapp = mapp:MappPlugin'
+            'mapp_gcs = mapp.operators.gcs_operators:MappGCSPlugin',
+            'mapp_datavault = mapp.operators.dv_operators:MappDvPlugin',
+            'mapp_mssql_to_gcs = mapp.operators.mssql_operators:MappMSSQLToGCSPlugin'
         ]
     }
 )
