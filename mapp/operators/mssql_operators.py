@@ -21,6 +21,7 @@ import json
 import decimal
 import time
 from airflow.models import BaseOperator
+from airflow.plugins_manager import AirflowPlugin
 from airflow.utils.decorators import apply_defaults
 from airflow.contrib.hooks.gcs_hook import GoogleCloudStorageHook
 from airflow.hooks.mssql_hook import MsSqlHook
@@ -384,3 +385,12 @@ class PartitionedMsSqlToGoogleCloudStorageOperator(MsSqlToGoogleCloudStorageOper
         # Close all temp file handles
         for file_handle in tmp_file_handles.values():
             file_handle.close()
+
+
+class MappMSSQLToGCSPlugin(AirflowPlugin):
+    name = 'mapp_mssql_to_gcs'
+
+    operators = [
+        PartitionedMsSqlToGoogleCloudStorageOperator,
+        MsSqlToGoogleCloudStorageOperator
+    ]

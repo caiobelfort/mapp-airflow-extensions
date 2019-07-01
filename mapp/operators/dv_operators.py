@@ -12,6 +12,8 @@ from airflow.contrib.hooks.gcs_hook import GoogleCloudStorageHook
 from airflow.operators import BaseOperator
 from airflow.utils.decorators import apply_defaults
 
+from airflow.plugins_manager import AirflowPlugin
+
 
 def _get_data_from_gcs(gcp_conn_id, bucket, input):
     hook = GoogleCloudStorageHook(google_cloud_storage_conn_id=gcp_conn_id)
@@ -339,3 +341,14 @@ class DatavaultInsertOperator(BaseOperator):
         if self.cursor is not None:
             self.log.info('Cancelling running query')
             self.cursor.cancel_query()
+
+
+class MappDvPlugin(AirflowPlugin):
+    name = 'mapp_datavault'
+
+    operators = [
+        DatavaultInsertOperator,
+        HubFormatterOperator,
+        SatelliteFormatterOperator,
+        LinkFormatterOperator
+    ]

@@ -1,6 +1,7 @@
 from airflow.contrib.hooks.gcs_hook import GoogleCloudStorageHook
 from airflow.models import SkipMixin
 from airflow.operators import BaseOperator
+from airflow.plugins_manager import AirflowPlugin
 from airflow.utils import apply_defaults
 
 
@@ -55,3 +56,11 @@ class GCSObjectExistsShortCircuitOperator(BaseOperator, SkipMixin):
             self.skip(context['dag_run'], context['ti'].execution_date, downstream_tasks)
 
         self.log.info("Done.")
+
+
+class MappGCSPlugin(AirflowPlugin):
+    name = 'mapp_gcs'
+
+    operators = [
+        GCSObjectExistsShortCircuitOperator
+    ]
