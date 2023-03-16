@@ -8,7 +8,7 @@ setup(
     author_email='caiobelfort90@gmail.com',
     packages=find_packages(exclude=['tests']),
     license='GPL',
-    install_requires=['apache-airflow==1.10.3'],
+    install_requires=['apache-airflow==2.5.2'],
     entry_points={
         'airflow.plugins': [
             'mapp_gcs = mapp.operators.gcs_operators:MappGCSPlugin',
